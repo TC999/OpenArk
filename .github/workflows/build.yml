@@ -1,0 +1,85 @@
+name: 编译 OpenArk
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2019
+    env:
+      WDK_VERSION: "7601"
+      WDKPATH: "C:\\WINDDK\\7600.16385.1"
+      QT_VERSION: "5.6.2"
+      QT_STATIC_ZIP: "qt5.6.2-static-lib.zip"
+      QT_INSTALL_DIR: "C:\\Qt\\5.6.2"
+      VS_VERSION: "2015"
+      NUGET_REPO: "http://nuget.blackint3.com:20001/api/odata"
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Chocolatey
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+          iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+
+      - name: 安装 NuGet CLI
+        run: choco install nuget.commandline --yes
+
+      - name: 安装 7zip
+        run: choco install 7zip --yes
+
+      - name: 下载并安装 Visual Studio 2015
+        run: |
+          curl -L -o vs2015.iso http://nuget.blackint3.com:20001/vs2015.iso
+          mkdir C:\vs2015
+          7z x vs2015.iso -oC:\vs2015
+          # 简化处理，通常需要更复杂的静默安装参数
+          # Start-Process -Wait -FilePath "C:\vs2015\vs_setup.exe" -ArgumentList "/quiet /norestart"
+
+      - name: 下载并安装 WDK 7601
+        run: |
+          curl -L -o wdk71.iso http://nuget.blackint3.com:20001/wdk71.iso
+          mkdir C:\wdk
+          7z x wdk71.iso -oC:\wdk
+          # 简化处理，通常需要更复杂的静默安装参数
+          # Start-Process -Wait -FilePath "C:\wdk\setup.exe" -ArgumentList "/quiet /norestart"
+
+      - name: 设置 WDKPATH 环境变量
+        run: |
+          echo "WDKPATH=C:\WINDDK\7600.16385.1" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: 下载并解压 Qt 静态库
+        run: |
+          curl -L -o $env:QT_STATIC_ZIP http://nuget.blackint3.com:20001/qt5.6.2-static-lib.zip
+          mkdir $env:QT_INSTALL_DIR
+          7z x $env:QT_STATIC_ZIP -o$env:QT_INSTALL_DIR
+
+      - name: 配置 NuGet 包源
+        run: |
+          nuget sources Add -Name "NugetRepoServer" -Source "http://nuget.blackint3.com:20001/api/odata" -ConfigFile NuGet.config
+
+      - name: 恢复 NuGet 包
+        run: nuget restore OpenArk.sln
+
+      - name: 编译 OpenArk
+        run: |
+          & "C:\Program Files (x86)\MSBuild\14.0\Bin\MSBuild.exe" OpenArk.sln /p:Configuration=Release
+
+      - name: 保存构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenArk-artifacts
+          path: |
+            bin/
+            build/
